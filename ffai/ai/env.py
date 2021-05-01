@@ -231,7 +231,7 @@ class FFAIEnv(gym.Env):
             'y': spaces.Discrete(arena.height)
         })
 
-    def step(self, action):
+    def step(self, action, skip_obs=False):
         if type(action['action-type']) is ActionType and action['action-type'] in FFAIEnv.actions:
             action_type = action['action-type']
         else:
@@ -243,9 +243,9 @@ class FFAIEnv(gym.Env):
             position = p
         real_action = Action(action_type=action_type, position=position, player=player)
         self.last_report_idx = len(self.game.state.reports)
-        return self._step(real_action)
+        return self._step(real_action, skip_obs=skip_obs)
 
-    def _step(self, action):
+    def _step(self, action, skip_obs=False):
         self.game.step(action)
         if action.action_type in FFAIEnv.offensive_formation_action_types or action.action_type in FFAIEnv.defensive_formation_action_types:
             self.game.step(Action(ActionType.END_SETUP))
@@ -276,7 +276,11 @@ class FFAIEnv(gym.Env):
             'round': self.game.state.round,
             'ball_progression': progression
         }
-        return self._observation(self.game), reward, self.game.state.game_over, info
+
+        if skip_obs:
+            return None, reward, self.game.state.game_over, info
+        else:
+            return self._observation(self.game), reward, self.game.state.game_over, info
 
     def seed(self, seed=None):
         if seed is None:
@@ -372,7 +376,7 @@ class FFAIEnv(gym.Env):
 
         for procedure in game.state.stack.items:
             if procedure.__class__ in FFAIEnv.procedures:
-            # proc_idx = FFAIEnv.procedures.index(procedure.__class__)
+                # proc_idx = FFAIEnv.procedures.index(procedure.__class__)
                 proc_name = procedure.__class__.__name__
                 obs['procedures'][proc_name] = 1.0
 
@@ -394,7 +398,7 @@ class FFAIEnv(gym.Env):
 
         return obs
 
-    def reset(self):
+    def reset(self, skip_obs=False):
         self.team_id = self.home_team.team_id
         home_agent = self.actor
         away_agent = self.opp_actor
@@ -414,7 +418,10 @@ class FFAIEnv(gym.Env):
         self.own_team = self.game.get_agent_team(self.actor)
         self.opp_team = self.game.get_agent_team(self.opp_actor)
 
-        return self._observation(self.game)
+        if skip_obs:
+            return
+        else:
+            return self._observation(self.game)
 
     def get_outcomes(self):
         if self.last_report_idx == len(self.game.state.reports):
@@ -640,3 +647,25 @@ class FFAIEnv(gym.Env):
         self.root = None
         self.cv = None
 
+    # Dimensions of observation space
+    def get_nbr_of_spat_layers(self):
+        return self.observation_space.spaces['board'].shape[0]
+
+    def get_non_spatial_inputs(self):
+        names = ['state', 'procedures', 'available-action-types']
+        sizes = [self.observation_space.spaces[name].shape[0] for name in names]
+        return sum(sizes)
+
+    def get_layer_width(self):
+        return self.observation_space.spaces['board'].shape[1]
+
+    def get_layer_height(self):
+        return self.observation_space.spaces['board'].shape[2]
+
+    def get_nbr_of_output_actions(self):
+        non_spatial_action_types = FFAIEnv.simple_action_types + FFAIEnv.defensive_formation_action_types + FFAIEnv.offensive_formation_action_types
+        num_non_spatial_action_types = len(non_spatial_action_types)
+        spatial_action_types = FFAIEnv.positional_action_types
+        num_spatial_action_types = len(spatial_action_types)
+        num_spatial_actions = num_spatial_action_types * self.get_layer_width() * self.get_layer_height()
+        return num_non_spatial_action_types + num_spatial_actions
